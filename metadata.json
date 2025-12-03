@@ -1,0 +1,5 @@
+{
+  "name": "InventoryMGT",
+  "description": "Sistem Manajemen Inventaris lengkap dengan kontrol stok, surat jalan, opname, laporan keuangan, dan analisis AI.",
+  "requestFramePermissions": []
+}
