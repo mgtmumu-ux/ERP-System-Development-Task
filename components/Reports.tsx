@@ -1,11 +1,13 @@
+
 import React, { useState, useMemo } from 'react';
 import { useInventory } from '../context/InventoryContext';
-import { Filter, Calendar, FileSpreadsheet, AlertTriangle, CheckCircle, BarChart as BarChartIcon } from 'lucide-react';
+import { Filter, Calendar, FileSpreadsheet, AlertTriangle, CheckCircle, BarChart as BarChartIcon, Eye, X, ArrowRight, ArrowLeft } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import * as XLSX from 'xlsx';
+import { Product } from '../types';
 
 const Reports: React.FC = () => {
-  const { transactions, products, settings, theme } = useInventory();
+  const { transactions, products, settings, theme, partners } = useInventory();
   const [reportType, setReportType] = useState<'MOVEMENT' | 'LOW_STOCK'>('MOVEMENT');
 
   // Default to current month
@@ -17,6 +19,9 @@ const Reports: React.FC = () => {
   const [startDate, setStartDate] = useState(formatDate(firstDay));
   const [endDate, setEndDate] = useState(formatDate(today));
   const [filterType, setFilterType] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+  
+  // State for Detail Modal
+  const [selectedDetailProduct, setSelectedDetailProduct] = useState<Product | null>(null);
 
   // --- LOGIC FOR MOVEMENT REPORT ---
   // Filter Transactions based on Date and Type
@@ -77,6 +82,24 @@ const Reports: React.FC = () => {
     }
     setStartDate(formatDate(start));
     setEndDate(formatDate(end));
+  };
+
+  const getProductHistory = (productId: string) => {
+    return filteredTransactions
+      .filter(t => t.items.some(i => i.productId === productId))
+      .map(t => {
+        const item = t.items.find(i => i.productId === productId);
+        const partner = partners.find(p => p.id === t.partnerId);
+        return {
+          date: t.date,
+          referenceNo: t.referenceNo,
+          type: t.type,
+          partnerName: partner?.name || 'Umum',
+          quantity: item?.quantity || 0,
+          unit: item?.unit || '-'
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
   };
 
   const downloadExcel = () => {
@@ -264,6 +287,7 @@ const Reports: React.FC = () => {
                       <th className="p-4 text-center bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-300">Keluar (Qty)</th>
                     )}
                     <th className="p-4 text-center">Stok Akhir</th>
+                    <th className="p-4 text-center">Detail</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-slate-700 text-gray-800 dark:text-gray-200">
@@ -290,17 +314,26 @@ const Reports: React.FC = () => {
                         <td className="p-4 text-center font-bold text-gray-700 dark:text-gray-300">
                           {p.currentStock}
                         </td>
+                        <td className="p-4 text-center">
+                          <button 
+                             onClick={() => setSelectedDetailProduct(p)}
+                             className="p-1.5 hover:bg-gray-100 dark:hover:bg-slate-600 rounded text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300 transition-colors"
+                             title="Lihat Rincian Transaksi"
+                          >
+                             <Eye size={18} />
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
                   {productMovement.length === 0 && (
-                    <tr><td colSpan={6} className="p-8 text-center text-gray-400 dark:text-gray-500">Tidak ada data produk.</td></tr>
+                    <tr><td colSpan={7} className="p-8 text-center text-gray-400 dark:text-gray-500">Tidak ada data produk.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
             <div className="p-4 border-t dark:border-slate-700 bg-gray-50 dark:bg-slate-700/50 text-xs text-gray-500 dark:text-gray-400">
-               Menampilkan pergerakan stok dari <strong>{startDate}</strong> sampai <strong>{endDate}</strong>.
+               Menampilkan pergerakan stok dari <strong>{startDate}</strong> sampai <strong>{endDate}</strong>. Klik ikon mata untuk rincian.
             </div>
           </div>
         </div>
@@ -351,6 +384,83 @@ const Reports: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* DETAIL PRODUCT MODAL */}
+      {selectedDetailProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden border dark:border-slate-700">
+            {/* Header */}
+            <div className="p-5 border-b dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-700/50">
+               <div>
+                  <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center">
+                    {selectedDetailProduct.name}
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 font-mono mt-1">
+                    {selectedDetailProduct.code} • {selectedDetailProduct.category}
+                  </p>
+               </div>
+               <button 
+                 onClick={() => setSelectedDetailProduct(null)}
+                 className="p-2 bg-white dark:bg-slate-600 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white shadow-sm border dark:border-slate-500"
+               >
+                 <X size={20} />
+               </button>
+            </div>
+
+            {/* Content Table */}
+            <div className="overflow-y-auto p-0">
+               <div className="p-4 bg-blue-50 dark:bg-blue-900/10 text-xs text-blue-700 dark:text-blue-300 border-b dark:border-slate-700">
+                 Menampilkan riwayat transaksi untuk periode <strong>{startDate}</strong> s/d <strong>{endDate}</strong>
+               </div>
+               <table className="w-full text-sm text-left">
+                 <thead className="bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 border-b dark:border-slate-600 sticky top-0">
+                   <tr>
+                     <th className="p-4">Tanggal</th>
+                     <th className="p-4">Tipe</th>
+                     <th className="p-4">No. Referensi</th>
+                     <th className="p-4">Partner</th>
+                     <th className="p-4 text-right">Jumlah</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y divide-gray-100 dark:divide-slate-700 text-gray-800 dark:text-gray-200">
+                   {getProductHistory(selectedDetailProduct.id).length > 0 ? (
+                     getProductHistory(selectedDetailProduct.id).map((h, idx) => (
+                       <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                         <td className="p-4 whitespace-nowrap">{h.date}</td>
+                         <td className="p-4">
+                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${h.type === 'IN' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' : 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'}`}>
+                             {h.type === 'IN' ? <ArrowRight size={12} className="mr-1 transform rotate-45" /> : <ArrowLeft size={12} className="mr-1 transform rotate-45" />}
+                             {h.type === 'IN' ? 'MASUK' : 'KELUAR'}
+                           </span>
+                         </td>
+                         <td className="p-4 font-mono text-gray-600 dark:text-gray-400">{h.referenceNo}</td>
+                         <td className="p-4 truncate max-w-[150px]">{h.partnerName}</td>
+                         <td className="p-4 text-right font-medium">
+                           {h.quantity} {h.unit}
+                         </td>
+                       </tr>
+                     ))
+                   ) : (
+                     <tr>
+                       <td colSpan={5} className="p-10 text-center text-gray-400 dark:text-gray-500">
+                         Tidak ada transaksi pada periode ini.
+                       </td>
+                     </tr>
+                   )}
+                 </tbody>
+               </table>
+            </div>
+
+            {/* Footer Summary */}
+            <div className="p-4 border-t dark:border-slate-700 bg-gray-50 dark:bg-slate-700/30 flex justify-between items-center text-sm">
+               <span className="text-gray-500 dark:text-gray-400">Stok Saat Ini: <strong>{selectedDetailProduct.currentStock} {selectedDetailProduct.unit}</strong></span>
+               <button onClick={() => setSelectedDetailProduct(null)} className="px-4 py-2 bg-white dark:bg-slate-700 border dark:border-slate-600 rounded text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-600">
+                 Tutup
+               </button>
+            </div>
           </div>
         </div>
       )}
