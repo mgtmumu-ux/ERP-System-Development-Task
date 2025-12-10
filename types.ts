@@ -73,7 +73,7 @@ export interface StockOpname {
   status: 'DRAFT' | 'COMPLETED';
 }
 
-// --- NEW ORDER TYPES ---
+// --- ORDER TYPES ---
 
 export type OrderStatus = 'DRAFT' | 'OPEN' | 'PARTIALLY_FULFILLED' | 'COMPLETED' | 'CANCELLED';
 export type OrderType = 'PO' | 'SO'; // Purchase Order | Sales Order
@@ -93,16 +93,36 @@ export interface Order {
   createdAt: number;
 }
 
+// --- AUTH TYPES ---
+export type Role = 'ADMIN' | 'INVENTORY' | 'PPIC' | 'PROJECT' | 'MANAGER';
+
+export interface User {
+  username: string;
+  name: string;
+  role: Role;
+  password?: string; // Only for verification mock
+}
+
 export interface InventoryContextType {
   products: Product[];
   partners: Partner[];
   transactions: Transaction[];
   opnames: StockOpname[];
   orders: Order[];
-  locations: StorageLocation[]; // New
+  locations: StorageLocation[]; 
   settings: CompanySettings;
   theme: 'light' | 'dark';
+  currentUser: User | null;
+  users: User[]; // List of all users
   toggleTheme: () => void;
+  login: (username: string, password: string) => boolean;
+  logout: () => void;
+  
+  // User Management
+  addUser: (u: User) => void;
+  updateUser: (u: User) => void;
+  deleteUser: (username: string) => void;
+
   addProduct: (p: Product) => void;
   updateProduct: (p: Product) => void;
   deleteProduct: (id: string) => void;
@@ -115,8 +135,8 @@ export interface InventoryContextType {
   addOrder: (o: Order) => void;
   updateOrder: (o: Order) => void;
   deleteOrder: (id: string) => void;
-  addLocation: (l: StorageLocation) => void; // New
-  deleteLocation: (id: string) => void; // New
+  addLocation: (l: StorageLocation) => void;
+  deleteLocation: (id: string) => void;
   updateSettings: (s: CompanySettings) => void;
   getDashboardStats: () => any;
   resetData: () => void;

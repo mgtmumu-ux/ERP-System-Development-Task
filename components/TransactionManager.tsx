@@ -5,19 +5,24 @@ import { Transaction, TransactionItem, TransactionType } from '../types';
 import { Plus, Trash, FileText, Printer, ArrowRight, ArrowLeft, AlertCircle, Edit, Save, X } from 'lucide-react';
 
 const TransactionManager: React.FC = () => {
-  const { products, partners, transactions, deleteTransaction } = useInventory();
+  const { products, partners, transactions, deleteTransaction, currentUser } = useInventory();
   const [activeTab, setActiveTab] = useState<TransactionType>('IN');
   const [viewMode, setViewMode] = useState<'FORM' | 'LIST' | 'DELIVERY_NOTE'>('LIST');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
+  // RBAC
+  const canEdit = currentUser?.role === 'ADMIN' || currentUser?.role === 'INVENTORY';
+
   const handleEdit = (transaction: Transaction) => {
+    if (!canEdit) return;
     setEditingTransaction(transaction);
     setActiveTab(transaction.type);
     setViewMode('FORM');
   };
 
   const handleDelete = (id: string) => {
+    if (!canEdit) return;
     if (confirm('Apakah Anda yakin ingin menghapus transaksi ini? Stok akan dikembalikan ke kondisi sebelumnya.')) {
       deleteTransaction(id);
     }
@@ -37,7 +42,7 @@ const TransactionManager: React.FC = () => {
             : (editingTransaction ? 'Edit Transaksi' : 'Transaksi Barang')}
         </h1>
         <div className="flex space-x-2">
-           {viewMode === 'LIST' && (
+           {viewMode === 'LIST' && canEdit && (
              <>
               <button 
                 onClick={() => { setActiveTab('IN'); setViewMode('FORM'); setEditingTransaction(null); }}
@@ -71,10 +76,11 @@ const TransactionManager: React.FC = () => {
           onViewNote={(t) => { setSelectedTransaction(t); setViewMode('DELIVERY_NOTE'); }}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          canEdit={canEdit}
         />
       )}
 
-      {viewMode === 'FORM' && (
+      {viewMode === 'FORM' && canEdit && (
         <TransactionForm 
           type={activeTab} 
           initialData={editingTransaction}
@@ -95,8 +101,9 @@ const TransactionList: React.FC<{
   partners: any[], 
   onViewNote: (t: Transaction) => void,
   onEdit: (t: Transaction) => void,
-  onDelete: (id: string) => void
-}> = ({ transactions, partners, onViewNote, onEdit, onDelete }) => {
+  onDelete: (id: string) => void,
+  canEdit: boolean
+}> = ({ transactions, partners, onViewNote, onEdit, onDelete, canEdit }) => {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden transition-colors">
       <table className="w-full text-left text-sm">
@@ -125,7 +132,9 @@ const TransactionList: React.FC<{
                 <td className="p-4 font-mono text-gray-600 dark:text-gray-400">{t.referenceNo}</td>
                 <td className="p-4">{partner?.name || '-'}</td>
                 <td className="p-4 text-center">{t.items.length}</td>
-                <td className="p-4 text-right">{t.totalValue.toLocaleString('id-ID')}</td>
+                <td className="p-4 text-right">
+                  {t.totalValue.toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                </td>
                 <td className="p-4 text-center">
                   <div className="flex items-center justify-center space-x-2">
                     <button 
@@ -135,20 +144,24 @@ const TransactionList: React.FC<{
                     >
                       <Printer size={16} />
                     </button>
-                    <button 
-                      onClick={() => onEdit(t)} 
-                      className="text-gray-500 dark:text-gray-400 hover:text-yellow-600 dark:hover:text-yellow-400 p-1.5 rounded hover:bg-yellow-50 dark:hover:bg-yellow-900/30 transition-colors"
-                      title="Edit / Revisi"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button 
-                      onClick={() => onDelete(t.id)} 
-                      className="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
-                      title="Hapus / Batalkan"
-                    >
-                      <Trash size={16} />
-                    </button>
+                    {canEdit && (
+                      <>
+                        <button 
+                          onClick={() => onEdit(t)} 
+                          className="text-gray-500 dark:text-gray-400 hover:text-yellow-600 dark:hover:text-yellow-400 p-1.5 rounded hover:bg-yellow-50 dark:hover:bg-yellow-900/30 transition-colors"
+                          title="Edit / Revisi"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button 
+                          onClick={() => onDelete(t.id)} 
+                          className="text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                          title="Hapus / Batalkan"
+                        >
+                          <Trash size={16} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -203,7 +216,6 @@ const TransactionForm: React.FC<{
   const activeProduct = products.find(p => p.id === selectedProductId);
 
   // Calculate available stock considering what's already in the cart and original stock
-  // This is CRITICAL for editing OUT transactions
   const getAvailableStock = (prodId: string) => {
     const prod = products.find(p => p.id === prodId);
     if (!prod) return 0;
@@ -429,8 +441,12 @@ const TransactionForm: React.FC<{
                       <td className="p-3 font-medium">{item.productName}</td>
                       <td className="p-3 text-center font-bold">{item.quantity}</td>
                       <td className="p-3 text-center text-gray-500">{item.unit}</td>
-                      <td className="p-3 text-right">{item.pricePerUnit.toLocaleString('id-ID')}</td>
-                      <td className="p-3 text-right font-medium">{(item.quantity * item.pricePerUnit).toLocaleString('id-ID')}</td>
+                      <td className="p-3 text-right">
+                        {item.pricePerUnit.toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                      </td>
+                      <td className="p-3 text-right font-medium">
+                        {(item.quantity * item.pricePerUnit).toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                      </td>
                       <td className="p-3 text-center">
                         <button type="button" onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30">
                           <Trash size={16} />

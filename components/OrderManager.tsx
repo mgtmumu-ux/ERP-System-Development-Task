@@ -6,10 +6,13 @@ import { Plus, Printer, Trash, Edit, CheckCircle, XCircle, FileText, ArrowRight,
 import * as XLSX from 'xlsx';
 
 const OrderManager: React.FC = () => {
-  const { orders, partners, products, addOrder } = useInventory();
+  const { orders, partners, products, addOrder, currentUser } = useInventory();
   const [activeTab, setActiveTab] = useState<OrderType>('PO'); // PO or SO
   const [viewMode, setViewMode] = useState<'LIST' | 'FORM' | 'DETAIL' | 'RESTOCK'>('LIST');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  // RBAC: Project Staff can create/edit. Manager Read Only.
+  const canEdit = currentUser?.role === 'ADMIN' || currentUser?.role === 'PROJECT';
 
   const filteredOrders = orders.filter(o => o.type === activeTab);
 
@@ -87,7 +90,7 @@ const OrderManager: React.FC = () => {
                 </button>
               </div>
               
-              {activeTab === 'PO' && (
+              {activeTab === 'PO' && canEdit && (
                 <button 
                   onClick={() => setViewMode('RESTOCK')}
                   className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center shadow-sm mr-2 text-sm animate-pulse"
@@ -104,12 +107,14 @@ const OrderManager: React.FC = () => {
               >
                 <FileSpreadsheet size={18} className="mr-2" /> Export
               </button>
-              <button 
-                onClick={handleCreateNew}
-                className={`px-4 py-2 text-white rounded-lg flex items-center ${activeTab === 'PO' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'}`}
-              >
-                <Plus size={18} className="mr-2" /> Buat {activeTab}
-              </button>
+              {canEdit && (
+                <button 
+                  onClick={handleCreateNew}
+                  className={`px-4 py-2 text-white rounded-lg flex items-center ${activeTab === 'PO' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'}`}
+                >
+                  <Plus size={18} className="mr-2" /> Buat {activeTab}
+                </button>
+              )}
             </>
           )}
           {viewMode !== 'LIST' && (
@@ -127,12 +132,12 @@ const OrderManager: React.FC = () => {
         <OrderList orders={filteredOrders} onView={handleViewOrder} type={activeTab} />
       )}
 
-      {viewMode === 'FORM' && (
+      {viewMode === 'FORM' && canEdit && (
         <OrderForm type={activeTab} onSuccess={() => setViewMode('LIST')} />
       )}
 
       {viewMode === 'DETAIL' && selectedOrder && (
-        <OrderDetail order={selectedOrder} onBack={() => setViewMode('LIST')} />
+        <OrderDetail order={selectedOrder} onBack={() => setViewMode('LIST')} canEdit={canEdit} />
       )}
 
       {viewMode === 'RESTOCK' && (
@@ -172,9 +177,10 @@ const RestockGenerator: React.FC<{
   useEffect(() => {
     const lowStockProducts = products.filter(p => p.currentStock <= p.minStock);
     
-    // Helper to find last supplier for a product
+    // Helper to find last supplier for a product based on transaction history
     const getLastSupplierId = (productId: string): string | null => {
       // Find the most recent 'IN' transaction for this product
+      // Context transactions are sorted desc by default, so find() gets the latest
       const lastTx = transactions.find(t => 
         t.type === 'IN' && t.items.some(i => i.productId === productId)
       );
@@ -197,7 +203,8 @@ const RestockGenerator: React.FC<{
         };
       }
 
-      // Default logic: Order MinStock * 3
+      // Default logic: Order enough to reach safe levels.
+      // Heuristic: minStock * 3 to cover lead time and safety stock
       tempGroups[lastSupplierId].items.push({
         product: p,
         orderQty: Math.max(p.minStock * 3, 10), 
@@ -244,7 +251,7 @@ const RestockGenerator: React.FC<{
       let newGroups = [...prev];
 
       if (existingGroupIndex > -1) {
-        // Merge into existing
+        // Merge into existing group
         newGroups[existingGroupIndex].items = [
           ...newGroups[existingGroupIndex].items,
           ...oldGroup.items
@@ -252,7 +259,7 @@ const RestockGenerator: React.FC<{
         // Remove old group
         newGroups = newGroups.filter(g => g.supplierId !== oldGroupId);
       } else {
-        // Rename/Relocate old group
+        // Update old group with new supplier details
         newGroups = newGroups.map(g => {
            if (g.supplierId === oldGroupId) {
              return { ...g, supplierId: newSupplierId, supplierName: newSupplierName };
@@ -281,7 +288,7 @@ const RestockGenerator: React.FC<{
         productName: i.product.name,
         productCode: i.product.code,
         quantity: i.orderQty,
-        pricePerUnit: i.product.price, // Use base price
+        pricePerUnit: i.product.price, // Use base price from product master
         unit: i.product.unit
       }));
 
@@ -289,14 +296,14 @@ const RestockGenerator: React.FC<{
 
       const newOrder: Order = {
         id: crypto.randomUUID(),
-        orderNumber: `PO-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
+        orderNumber: `PO-AUTO-${Math.floor(Math.random() * 10000)}`,
         type: 'PO',
         partnerId: group.supplierId,
         date: new Date().toISOString().split('T')[0],
         status: 'DRAFT',
         items: orderItems,
         totalValue,
-        notes: 'Generated via Auto Restock',
+        notes: 'Generated via Auto Restock based on low stock analysis.',
         createdAt: Date.now()
       };
 
@@ -305,7 +312,7 @@ const RestockGenerator: React.FC<{
     });
 
     if (generatedCount > 0) {
-      alert(`${generatedCount} Draft Purchase Order berhasil dibuat!`);
+      alert(`${generatedCount} Draft Purchase Order berhasil dibuat! Silakan cek daftar pesanan.`);
       onSuccess();
     } else {
       alert("Tidak ada item yang dipilih atau Supplier belum ditentukan.");
@@ -469,7 +476,9 @@ const OrderList: React.FC<{ orders: Order[], onView: (o: Order) => void, type: O
                 <td className="p-4">{partner?.name || '-'}</td>
                 <td className="p-4 text-gray-600 dark:text-gray-400 text-xs">{categories || '-'}</td>
                 <td className="p-4 text-center">{o.items.length}</td>
-                <td className="p-4 text-right">{o.totalValue.toLocaleString('id-ID')}</td>
+                <td className="p-4 text-right">
+                  {o.totalValue.toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                </td>
                 <td className="p-4 text-center">{getStatusBadge(o.status)}</td>
                 <td className="p-4 text-center text-blue-600 dark:text-blue-400">
                   <ArrowRight size={18} className="mx-auto" />
@@ -628,8 +637,12 @@ const OrderForm: React.FC<{ type: OrderType, onSuccess: () => void }> = ({ type,
                     </td>
                     <td className="p-2 text-center">{item.quantity}</td>
                     <td className="p-2 text-center text-gray-500 dark:text-gray-400">{item.unit || '-'}</td>
-                    <td className="p-2 text-right">{item.pricePerUnit.toLocaleString('id-ID')}</td>
-                    <td className="p-2 text-right">{(item.quantity * item.pricePerUnit).toLocaleString('id-ID')}</td>
+                    <td className="p-2 text-right">
+                      {item.pricePerUnit.toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                    </td>
+                    <td className="p-2 text-right">
+                      {(item.quantity * item.pricePerUnit).toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                    </td>
                     <td className="p-2 text-center">
                       <button type="button" onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 dark:hover:text-red-400"><Trash size={16} /></button>
                     </td>
@@ -650,7 +663,7 @@ const OrderForm: React.FC<{ type: OrderType, onSuccess: () => void }> = ({ type,
   );
 };
 
-const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, onBack }) => {
+const OrderDetail: React.FC<{ order: Order, onBack: () => void, canEdit: boolean }> = ({ order, onBack, canEdit }) => {
   const { partners, updateOrder, addTransaction, settings, products } = useInventory();
   const partner = partners.find(p => p.id === order.partnerId);
 
@@ -664,6 +677,8 @@ const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, on
   const allStockAvailable = order.items.every(checkStock);
 
   const handleStatusChange = (status: OrderStatus) => {
+    if (!canEdit) return;
+
     const isPO = order.type === 'PO';
     let confirmMsg = '';
 
@@ -674,9 +689,9 @@ const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, on
         : "Apakah Anda yakin menyetujui pesanan ini untuk diproses?";
       
       const consequences = [
-        "Status berubah menjadi OPEN.",
-        "Item dan harga akan TERKUNCI (tidak bisa diedit lagi).",
-        isPO ? "Langkah selanjutnya: Terima Barang (Fulfill) saat barang tiba." : "Langkah selanjutnya: Kirim Barang (Fulfill) untuk mengurangi stok."
+        "Status berubah menjadi OPEN (Pesanan Aktif).",
+        "Data item dan harga TERKUNCI untuk menjaga integritas.",
+        isPO ? "Menunggu barang datang untuk proses penerimaan (Fulfill)." : "Menunggu pengiriman barang untuk pengurangan stok (Fulfill)."
       ];
 
       confirmMsg = `=== ${title} ===\n\n${action}\n\nKONSEKUENSI:\n${consequences.map(c => `- ${c}`).join('\n')}`;
@@ -702,6 +717,8 @@ const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, on
   };
 
   const handleFulfill = () => {
+    if (!canEdit) return;
+
     // 1. Validasi Stok untuk Sales Order (SO)
     if (order.type === 'SO' && !allStockAvailable) {
         alert(`Gagal memproses pesanan! Beberapa item stoknya tidak mencukupi. Periksa tanda peringatan merah pada daftar item.`);
@@ -717,8 +734,8 @@ const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, on
     
     const consequences = [
       "Status pesanan menjadi COMPLETED (Selesai).",
-      isPO ? "Stok sistem akan BERTAMBAH otomatis." : "Stok sistem akan BERKURANG otomatis.",
-      "Transaksi 'Masuk' atau 'Keluar' akan tercatat di riwayat."
+      isPO ? "Stok fisik bertambah & Transaksi 'Masuk' tercatat." : "Stok fisik berkurang & Transaksi 'Keluar' tercatat.",
+      isPO ? "Nilai aset gudang akan meningkat." : "Jika stok mencapai batas minimum, notifikasi restock akan muncul."
     ];
       
     const confirmMsg = `=== ${title} ===\n\n${action}\n\nKONSEKUENSI:\n${consequences.map(c => `- ${c}`).join('\n')}\n\nLanjutkan proses?`;
@@ -860,8 +877,12 @@ const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, on
                 </td>
                 <td className="py-3 text-center font-bold">{item.quantity}</td>
                 <td className="py-3 text-center text-gray-500">{item.unit || '-'}</td>
-                <td className="py-3 text-right">{item.pricePerUnit.toLocaleString('id-ID')}</td>
-                <td className="py-3 text-right font-medium">{(item.quantity * item.pricePerUnit).toLocaleString('id-ID')}</td>
+                <td className="py-3 text-right">
+                  {item.pricePerUnit.toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                </td>
+                <td className="py-3 text-right font-medium">
+                  {(item.quantity * item.pricePerUnit).toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
+                </td>
               </tr>
             );
           })}
@@ -870,7 +891,7 @@ const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, on
           <tr>
             <td colSpan={6} className="py-4 text-right font-bold text-lg text-gray-800">TOTAL</td>
             <td className="py-4 text-right font-bold text-lg border-t border-gray-800 text-gray-800">
-              {settings.currency} {order.totalValue.toLocaleString('id-ID')}
+              {order.totalValue.toLocaleString('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 })}
             </td>
           </tr>
         </tfoot>
@@ -910,36 +931,38 @@ const OrderDetail: React.FC<{ order: Order, onBack: () => void }> = ({ order, on
         </div>
 
         {/* Right Side: Process Actions */}
-        <div className="flex gap-2 items-center">
-          {order.status === 'DRAFT' && (
-            <button onClick={() => handleStatusChange('OPEN')} className="px-4 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 flex items-center transition-colors font-medium">
-              <CheckCircle size={18} className="mr-2" /> Konfirmasi Order
-            </button>
-          )}
-          
-          {(order.status === 'OPEN' || order.status === 'PARTIALLY_FULFILLED') && (
-            <div className="flex flex-col items-end">
-              <button 
-                onClick={handleFulfill} 
-                disabled={order.type === 'SO' && !allStockAvailable}
-                className={`px-4 py-2 text-white rounded shadow flex items-center transition-colors font-bold ${
-                  order.type === 'SO' && !allStockAvailable 
-                    ? 'bg-gray-400 cursor-not-allowed' 
-                    : 'bg-green-600 hover:bg-green-700 animate-pulse'
-                }`}
-              >
-                <PackageCheck size={18} className="mr-2" /> 
-                {order.type === 'PO' ? 'Terima Barang & Tambah Stok' : 'Kirim Barang & Kurangi Stok'}
+        {canEdit && (
+          <div className="flex gap-2 items-center">
+            {order.status === 'DRAFT' && (
+              <button onClick={() => handleStatusChange('OPEN')} className="px-4 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 flex items-center transition-colors font-medium">
+                <CheckCircle size={18} className="mr-2" /> Konfirmasi Order
               </button>
-            </div>
-          )}
+            )}
+            
+            {(order.status === 'OPEN' || order.status === 'PARTIALLY_FULFILLED') && (
+              <div className="flex flex-col items-end">
+                <button 
+                  onClick={handleFulfill} 
+                  disabled={order.type === 'SO' && !allStockAvailable}
+                  className={`px-4 py-2 text-white rounded shadow flex items-center transition-colors font-bold ${
+                    order.type === 'SO' && !allStockAvailable 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-green-600 hover:bg-green-700 animate-pulse'
+                  }`}
+                >
+                  <PackageCheck size={18} className="mr-2" /> 
+                  {order.type === 'PO' ? 'Terima Barang & Tambah Stok' : 'Kirim Barang & Kurangi Stok'}
+                </button>
+              </div>
+            )}
 
-          {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
-            <button onClick={() => handleStatusChange('CANCELLED')} className="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 border border-red-200 transition-colors">
-              Batalkan
-            </button>
-          )}
-        </div>
+            {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
+              <button onClick={() => handleStatusChange('CANCELLED')} className="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 border border-red-200 transition-colors">
+                Batalkan
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

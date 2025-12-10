@@ -2,14 +2,14 @@
 import React, { useMemo, useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
-  AreaChart, Area, PieChart, Pie, Cell
+  AreaChart, Area, PieChart, Pie, Cell, 
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend
 } from 'recharts';
 import { 
-  TrendingUp, TrendingDown, Package, DollarSign, 
+  TrendingUp, Banknote, 
   ArrowUpRight, ArrowDownRight, MapPin, Calendar, 
   Activity, Clock, PlusCircle, ShoppingCart, AlertTriangle, CheckCircle,
-  Wallet, Layers, Box, Database
+  Wallet, Layers, Box, Database, Building2
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
@@ -18,10 +18,10 @@ const Dashboard: React.FC = () => {
   // --- SMART CURRENCY FORMATTER ---
   const formatCurrency = (value: number, short = false) => {
     if (short) {
-      if (value >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2)} T`;
-      if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)} M`;
-      if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} Jt`;
-      if (value >= 1_000) return `${(value / 1_000).toFixed(0)} rb`;
+      if (value >= 1_000_000_000_000) return `Rp ${(value / 1_000_000_000_000).toFixed(2)} T`;
+      if (value >= 1_000_000_000) return `Rp ${(value / 1_000_000_000).toFixed(2)} M`;
+      if (value >= 1_000_000) return `Rp ${(value / 1_000_000).toFixed(1)} Jt`;
+      if (value >= 1_000) return `Rp ${(value / 1_000).toFixed(0)} rb`;
     }
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -107,46 +107,37 @@ const Dashboard: React.FC = () => {
     return Array.from(dataMap.values());
   }, [filteredTransactions]);
 
-  // --- CHART DATA 2: Warehouse Values & Quantity ---
-  const warehouseStats = useMemo(() => {
-    const data = locations.map(loc => {
-      const locProducts = products.filter(p => p.locationId === loc.id);
-      return {
-        name: loc.name,
-        value: locProducts.reduce((acc, p) => acc + (p.currentStock * p.price), 0),
-        qty: locProducts.reduce((acc, p) => acc + p.currentStock, 0)
-      };
-    });
-
-    // Handle Unassigned
-    const unassignedProducts = products.filter(p => !p.locationId || !locations.find(l => l.id === p.locationId));
-    if (unassignedProducts.length > 0) {
-      data.push({
-        name: 'Unassigned',
-        value: unassignedProducts.reduce((acc, p) => acc + (p.currentStock * p.price), 0),
-        qty: unassignedProducts.reduce((acc, p) => acc + p.currentStock, 0)
-      });
+  // --- DYNAMIC WAREHOUSE DATA (Detailed per Location) ---
+  const warehouseDetailedStats = useMemo(() => {
+    const allLocs = locations.map(l => ({ id: l.id, name: l.name }));
+    // Add fake location for unassigned items if any exist
+    const unassignedCount = products.filter(p => !p.locationId).length;
+    if (unassignedCount > 0) {
+      allLocs.push({ id: 'unassigned', name: 'Tanpa Lokasi' });
     }
 
-    return data.sort((a, b) => b.value - a.value);
+    return allLocs.map(loc => {
+      const locProducts = products.filter(p => 
+        loc.id === 'unassigned' ? !p.locationId : p.locationId === loc.id
+      );
+
+      const totalValue = locProducts.reduce((acc, p) => acc + (p.currentStock * p.price), 0);
+      const totalQty = locProducts.reduce((acc, p) => acc + p.currentStock, 0);
+
+      return {
+        id: loc.id,
+        name: loc.name,
+        totalQty,
+        totalValue
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
   }, [products, locations]);
 
-  // --- CHART DATA 3: Category Distribution ---
-  const categoryData = useMemo(() => {
-    const map = new Map<string, number>();
-    products.forEach(p => {
-      map.set(p.category, (map.get(p.category) || 0) + 1);
-    });
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5); // Top 5 categories
-  }, [products]);
-
-  const COLORS = ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#3b82f6'];
+  const COLORS = ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#3b82f6', '#06b6d4'];
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const data = payload[0].payload; // Access the full data object to get totalQty
       return (
         <div className="bg-white dark:bg-slate-800 p-3 border dark:border-slate-600 shadow-xl rounded-lg text-xs z-50">
           <p className="font-bold mb-2 text-gray-800 dark:text-gray-100 border-b dark:border-slate-700 pb-1">{label}</p>
@@ -161,6 +152,15 @@ const Dashboard: React.FC = () => {
               </span>
             </div>
           ))}
+          
+          {/* Extra Info for Warehouse Chart */}
+          {data.totalQty !== undefined && (
+             <div className="flex items-center gap-2 mb-1 mt-2 pt-2 border-t dark:border-slate-700 border-dashed">
+                <Box size={10} className="text-gray-400" />
+                <span className="text-gray-500 dark:text-gray-400">Total Item:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-200">{data.totalQty.toLocaleString()}</span>
+             </div>
+          )}
         </div>
       );
     }
@@ -181,7 +181,7 @@ const Dashboard: React.FC = () => {
             DASHBOARD MGT
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            Berikut adalah ringkasan performa gudang & keuangan perusahaan.
+            PT MODULAR GLOBAL TEKINDO
           </p>
         </div>
 
@@ -227,14 +227,14 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="relative z-10">
             <div className="flex items-center gap-2 mb-3 opacity-90">
-              <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm"><DollarSign size={16} /></div>
+              <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm"><Banknote size={16} /></div>
               <span className="text-xs font-bold uppercase tracking-wider">Total Nilai Aset</span>
             </div>
             <h3 className="text-2xl font-bold mb-1 tracking-tight">
                {formatCurrency(stats.totalValue, true)}
             </h3>
             <p className="text-xs opacity-80 flex items-center">
-              <Package size={12} className="mr-1" /> {stats.totalItems.toLocaleString()} Item Fisik
+              <Box size={12} className="mr-1" /> {stats.totalItems.toLocaleString()} Item Fisik
             </p>
           </div>
         </div>
@@ -255,7 +255,6 @@ const Dashboard: React.FC = () => {
           <div className="w-full bg-gray-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500 w-3/4 rounded-full"></div>
           </div>
-          <p className="text-xs text-gray-400 mt-2 text-right">Target 75% tercapai</p>
         </div>
 
         {/* Expense (Purchases) */}
@@ -274,7 +273,6 @@ const Dashboard: React.FC = () => {
           <div className="w-full bg-gray-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
              <div className="h-full bg-rose-500 w-1/2 rounded-full"></div>
           </div>
-          <p className="text-xs text-gray-400 mt-2 text-right">50% dari budget</p>
         </div>
 
         {/* Low Stock Alert */}
@@ -286,7 +284,7 @@ const Dashboard: React.FC = () => {
                 {stats.lowStockCount > 0 ? `${stats.lowStockCount} Item` : 'Aman'}
               </h3>
               <p className="text-xs opacity-80 mt-1 text-gray-600 dark:text-gray-400">
-                {stats.lowStockCount > 0 ? 'Perlu restock segera.' : 'Semua stok di atas batas minimum.'}
+                {stats.lowStockCount > 0 ? 'Perlu restock segera.' : 'Semua stok aman.'}
               </p>
             </div>
             <div className={`p-2 rounded-xl ${stats.lowStockCount > 0 ? 'bg-orange-100 dark:bg-orange-800 text-orange-600 dark:text-orange-200 animate-pulse' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}>
@@ -296,13 +294,51 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. MAIN CONTENT GRID (BENTO STYLE) */}
+      {/* 3. WAREHOUSE ANALYTICS (SINGLE CHART) */}
+      <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
+        <div className="flex justify-between items-center mb-6">
+           <div>
+             <h3 className="font-bold text-gray-800 dark:text-white text-lg flex items-center">
+                <Building2 size={20} className="mr-2 text-purple-500" /> Analisa Aset & Stok Per Gudang
+             </h3>
+             <p className="text-sm text-gray-500 dark:text-gray-400">Total nilai aset di setiap lokasi penyimpanan</p>
+           </div>
+        </div>
+        
+        <div className="h-80 w-full">
+           {warehouseDetailedStats.length > 0 ? (
+             <ResponsiveContainer width="100%" height="100%">
+               <BarChart data={warehouseDetailedStats} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#e5e7eb'} />
+                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: theme === 'dark' ? '#94a3b8' : '#6b7280'}} dy={10} />
+                 <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{fontSize: 11, fill: theme === 'dark' ? '#94a3b8' : '#6b7280'}} 
+                    tickFormatter={(val) => formatCurrency(val, true)} 
+                 />
+                 <Tooltip content={<CustomTooltip />} cursor={{fill: theme === 'dark' ? '#1e293b' : '#f8fafc', opacity: 0.5}} />
+                 <Bar dataKey="totalValue" name="Total Nilai Aset" radius={[6, 6, 0, 0]} maxBarSize={60}>
+                     {warehouseDetailedStats.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                 </Bar>
+               </BarChart>
+             </ResponsiveContainer>
+           ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+                 <Box size={48} className="mb-4 opacity-50" />
+                 <p>Belum ada data lokasi gudang. Tambahkan lokasi pada menu Stok Barang.</p>
+              </div>
+           )}
+        </div>
+      </div>
+
+      {/* 4. MAIN CONTENT GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* LEFT COL (8/12): Main Financial Chart */}
         <div className="lg:col-span-8 space-y-6">
-          
-          {/* Financial Trend Chart */}
           <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 h-full">
              <div className="flex justify-between items-center mb-6">
                <div>
@@ -311,10 +347,10 @@ const Dashboard: React.FC = () => {
                </div>
                <div className="flex gap-4">
                   <div className="flex items-center text-xs text-gray-600 dark:text-gray-300">
-                    <span className="w-2 h-2 rounded-full bg-blue-500 mr-2"></span> Masuk (Beli)
+                    <span className="w-2 h-2 rounded-full bg-blue-500 mr-2"></span> Masuk
                   </div>
                   <div className="flex items-center text-xs text-gray-600 dark:text-gray-300">
-                    <span className="w-2 h-2 rounded-full bg-orange-500 mr-2"></span> Keluar (Jual)
+                    <span className="w-2 h-2 rounded-full bg-orange-500 mr-2"></span> Keluar
                   </div>
                </div>
              </div>
@@ -352,129 +388,64 @@ const Dashboard: React.FC = () => {
                <h3 className="font-bold text-gray-800 dark:text-white flex items-center">
                  <Activity size={18} className="mr-2 text-indigo-500" /> Aktivitas Terbaru
                </h3>
-               <button className="text-xs text-indigo-600 font-medium hover:underline">Lihat Semua</button>
             </div>
-            <div className="divide-y dark:divide-slate-700 max-h-[350px] overflow-y-auto custom-scrollbar">
+            <div className="divide-y dark:divide-slate-700 max-h-[300px] overflow-y-auto custom-scrollbar">
               {recentActivity.length > 0 ? (
                 recentActivity.map(tx => (
-                  <div key={tx.id} className="p-4 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors">
+                  <div key={tx.id} className="p-3 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors">
                     <div className="flex items-start gap-3">
-                       <div className={`p-2 rounded-lg mt-1 shrink-0 ${tx.type === 'IN' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'}`}>
-                         {tx.type === 'IN' ? <ArrowDownRight size={16} /> : <ArrowUpRight size={16} />}
+                       <div className={`p-1.5 rounded-lg mt-1 shrink-0 ${tx.type === 'IN' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'}`}>
+                         {tx.type === 'IN' ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
                        </div>
                        <div className="flex-1 min-w-0">
                          <p className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate">
                            {tx.type === 'IN' ? 'Barang Masuk' : 'Barang Keluar'} <span className="text-gray-400 font-normal">#{tx.referenceNo}</span>
                          </p>
-                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                         <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 truncate">
                            {tx.items.length} Item • Total {formatCurrency(tx.totalValue, true)}
                          </p>
-                         <p className="text-[10px] text-gray-400 mt-2">{new Date(tx.createdAt).toLocaleString()}</p>
+                         <p className="text-[10px] text-gray-400 mt-1">{new Date(tx.createdAt).toLocaleString()}</p>
                        </div>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="p-8 text-center text-gray-400 text-sm">Belum ada aktivitas.</div>
+                <div className="p-6 text-center text-gray-400 text-sm">Belum ada aktivitas.</div>
               )}
             </div>
           </div>
 
-          {/* Widget 2: Category Pie Chart */}
-          <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
-            <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center">
-              <Layers size={18} className="mr-2 text-pink-500" /> Kategori Top
-            </h3>
-            <div className="h-48 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    innerRadius={50}
-                    outerRadius={70}
-                    paddingAngle={4}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<CustomTooltip />} />
-                </PieChart>
-              </ResponsiveContainer>
-              {/* Center Text */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-2xl font-bold text-gray-800 dark:text-white">{stats.totalProducts}</span>
-                <span className="text-[10px] uppercase text-gray-400 tracking-wider">Produk</span>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 justify-center mt-2">
-               {categoryData.slice(0,3).map((entry, i) => (
-                 <div key={i} className="flex items-center text-xs text-gray-500 dark:text-gray-400">
-                    <span className="w-2 h-2 rounded-full mr-1" style={{backgroundColor: COLORS[i]}}></span>
-                    {entry.name} ({entry.value})
-                 </div>
-               ))}
-            </div>
-          </div>
+          {/* Widget 2: Quick Actions */}
+          <div className="bg-indigo-50 dark:bg-slate-800 p-5 rounded-2xl border border-indigo-100 dark:border-slate-700 h-full">
+             <h3 className="font-bold text-indigo-900 dark:text-indigo-300 mb-4 text-sm uppercase tracking-wide">Aksi Cepat</h3>
+             <div className="space-y-3">
+               <button className="w-full flex items-center justify-between p-3 bg-white dark:bg-slate-700 rounded-xl border border-indigo-100 dark:border-slate-600 hover:shadow-md transition-shadow text-left group">
+                   <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Tambah Barang</span>
+                   <div className="bg-indigo-50 dark:bg-slate-600 p-1.5 rounded group-hover:bg-indigo-100 dark:group-hover:bg-slate-500 transition-colors"><PlusCircle size={16} className="text-indigo-600 dark:text-indigo-300"/></div>
+               </button>
+               <button className="w-full flex items-center justify-between p-3 bg-white dark:bg-slate-700 rounded-xl border border-indigo-100 dark:border-slate-600 hover:shadow-md transition-shadow text-left group">
+                   <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Buat Order (PO)</span>
+                   <div className="bg-indigo-50 dark:bg-slate-600 p-1.5 rounded group-hover:bg-indigo-100 dark:group-hover:bg-slate-500 transition-colors"><ShoppingCart size={16} className="text-indigo-600 dark:text-indigo-300"/></div>
+               </button>
+               <button className="w-full flex items-center justify-between p-3 bg-white dark:bg-slate-700 rounded-xl border border-indigo-100 dark:border-slate-600 hover:shadow-md transition-shadow text-left group">
+                   <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Laporan Stok</span>
+                   <div className="bg-indigo-50 dark:bg-slate-600 p-1.5 rounded group-hover:bg-indigo-100 dark:group-hover:bg-slate-500 transition-colors"><Database size={16} className="text-indigo-600 dark:text-indigo-300"/></div>
+               </button>
+             </div>
+           </div>
         </div>
       </div>
 
-      {/* 4. NEW SECTION: WAREHOUSE ANALYTICS (SPLIT CHARTS) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* 5. BOTTOM SECTION: Priority Table */}
+      <div className="grid grid-cols-1">
         
-        {/* Chart A: Value per Warehouse */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-6">
-             <h3 className="font-bold text-gray-800 dark:text-white text-lg flex items-center">
-               <MapPin size={20} className="mr-2 text-purple-500" /> Nilai Aset per Gudang (Rp)
-             </h3>
-          </div>
-          <div className="h-64 w-full">
-             <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={warehouseStats} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#f1f5f9'} />
-                 <XAxis dataKey="name" tick={{fontSize: 11, fill: theme === 'dark' ? '#94a3b8' : '#64748b'}} />
-                 <YAxis tickFormatter={(val) => formatCurrency(val, true)} tick={{fontSize: 11, fill: theme === 'dark' ? '#94a3b8' : '#64748b'}} width={50} />
-                 <Tooltip content={<CustomTooltip />} cursor={{fill: theme === 'dark' ? '#334155' : '#f1f5f9', opacity: 0.4}} />
-                 <Bar dataKey="value" name="Nilai Aset" fill="#8b5cf6" radius={[6, 6, 0, 0]} barSize={40} />
-               </BarChart>
-             </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Chart B: Quantity per Warehouse */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-6">
-             <h3 className="font-bold text-gray-800 dark:text-white text-lg flex items-center">
-               <Box size={20} className="mr-2 text-cyan-500" /> Volume Stok per Gudang (Qty)
-             </h3>
-          </div>
-          <div className="h-64 w-full">
-             <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={warehouseStats} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#f1f5f9'} />
-                 <XAxis dataKey="name" tick={{fontSize: 11, fill: theme === 'dark' ? '#94a3b8' : '#64748b'}} />
-                 <YAxis tick={{fontSize: 11, fill: theme === 'dark' ? '#94a3b8' : '#64748b'}} width={40} />
-                 <Tooltip content={<CustomTooltip />} cursor={{fill: theme === 'dark' ? '#334155' : '#f1f5f9', opacity: 0.4}} />
-                 <Bar dataKey="qty" name="Jumlah Barang" fill="#06b6d4" radius={[6, 6, 0, 0]} barSize={40} />
-               </BarChart>
-             </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* 5. BOTTOM SECTION: Priority Table & Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Priority Table (2/3) */}
-        <div className="lg:col-span-2">
+        {/* Priority Table */}
+        <div className="">
           {stats.lowStockCount > 0 ? (
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-red-100 dark:border-red-900/30 overflow-hidden h-full">
-              <div className="p-6 border-b dark:border-slate-700 bg-red-50/50 dark:bg-red-900/10 flex justify-between items-center">
-                <h3 className="font-bold text-gray-800 dark:text-white flex items-center">
-                  <AlertTriangle className="mr-2 text-red-500 animate-bounce" size={18} /> Prioritas Restock
+              <div className="p-4 border-b dark:border-slate-700 bg-red-50/50 dark:bg-red-900/10 flex justify-between items-center">
+                <h3 className="font-bold text-gray-800 dark:text-white flex items-center text-sm">
+                  <AlertTriangle className="mr-2 text-red-500 animate-bounce" size={16} /> Prioritas Restock
                 </h3>
                 <span className="text-xs font-bold text-red-600 bg-red-100 dark:bg-red-900/50 px-3 py-1 rounded-full">
                   {stats.lowStockCount} Item Kritis
@@ -484,10 +455,10 @@ const Dashboard: React.FC = () => {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-white dark:bg-slate-800 border-b dark:border-slate-700">
                     <tr className="text-gray-400 dark:text-gray-500 font-medium">
-                      <th className="p-4 pl-6">Nama Barang</th>
-                      <th className="p-4 text-center">Sisa</th>
-                      <th className="p-4 text-center">Min</th>
-                      <th className="p-4 w-48">Status</th>
+                      <th className="p-3 pl-4">Nama Barang</th>
+                      <th className="p-3 text-center">Sisa</th>
+                      <th className="p-3 text-center">Min</th>
+                      <th className="p-3 w-32">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y dark:divide-slate-700">
@@ -499,17 +470,16 @@ const Dashboard: React.FC = () => {
                         const percentage = Math.min(100, (p.currentStock / p.minStock) * 100);
                         return (
                           <tr key={p.id} className="text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors">
-                            <td className="p-4 pl-6 font-medium">{p.name}</td>
-                            <td className="p-4 text-center font-bold text-red-600 dark:text-red-400">{p.currentStock}</td>
-                            <td className="p-4 text-center text-gray-500">{p.minStock}</td>
-                            <td className="p-4">
-                              <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full h-2 mb-1 overflow-hidden">
+                            <td className="p-3 pl-4 font-medium">{p.name}</td>
+                            <td className="p-3 text-center font-bold text-red-600 dark:text-red-400">{p.currentStock}</td>
+                            <td className="p-3 text-center text-gray-500">{p.minStock}</td>
+                            <td className="p-3">
+                              <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full h-1.5 mb-1 overflow-hidden">
                                 <div 
-                                  className={`h-2 rounded-full ${percentage < 20 ? 'bg-red-600' : 'bg-orange-500'}`} 
+                                  className={`h-1.5 rounded-full ${percentage < 20 ? 'bg-red-600' : 'bg-orange-500'}`} 
                                   style={{ width: `${percentage}%` }}
                                 ></div>
                               </div>
-                              <p className="text-[10px] text-gray-400 text-right">{percentage.toFixed(0)}%</p>
                             </td>
                           </tr>
                         );
@@ -528,26 +498,6 @@ const Dashboard: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* Quick Actions (1/3) */}
-        <div className="bg-indigo-50 dark:bg-slate-800 p-5 rounded-2xl border border-indigo-100 dark:border-slate-700 h-full">
-          <h3 className="font-bold text-indigo-900 dark:text-indigo-300 mb-4 text-sm uppercase tracking-wide">Aksi Cepat</h3>
-          <div className="space-y-3">
-            <button className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-700 rounded-xl border border-indigo-100 dark:border-slate-600 hover:shadow-md transition-shadow text-left group">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Tambah Barang Baru</span>
-                <div className="bg-indigo-50 dark:bg-slate-600 p-1.5 rounded group-hover:bg-indigo-100 dark:group-hover:bg-slate-500 transition-colors"><PlusCircle size={18} className="text-indigo-600 dark:text-indigo-300"/></div>
-            </button>
-            <button className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-700 rounded-xl border border-indigo-100 dark:border-slate-600 hover:shadow-md transition-shadow text-left group">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Buat Purchase Order</span>
-                <div className="bg-indigo-50 dark:bg-slate-600 p-1.5 rounded group-hover:bg-indigo-100 dark:group-hover:bg-slate-500 transition-colors"><ShoppingCart size={18} className="text-indigo-600 dark:text-indigo-300"/></div>
-            </button>
-            <button className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-700 rounded-xl border border-indigo-100 dark:border-slate-600 hover:shadow-md transition-shadow text-left group">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Cek Laporan Stok</span>
-                <div className="bg-indigo-50 dark:bg-slate-600 p-1.5 rounded group-hover:bg-indigo-100 dark:group-hover:bg-slate-500 transition-colors"><Database size={18} className="text-indigo-600 dark:text-indigo-300"/></div>
-            </button>
-          </div>
-        </div>
-
       </div>
     </div>
   );

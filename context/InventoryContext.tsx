@@ -8,7 +8,8 @@ import {
   StockOpname, 
   Transaction,
   Order,
-  StorageLocation
+  StorageLocation,
+  User
 } from '../types';
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
@@ -21,6 +22,14 @@ const defaultSettings: CompanySettings = {
   currency: 'IDR'
 };
 
+const DEFAULT_USERS: User[] = [
+  { username: 'admin', name: 'Super Admin', role: 'ADMIN', password: '123' },
+  { username: 'inventory', name: 'Staf Gudang', role: 'INVENTORY', password: '123' },
+  { username: 'ppic', name: 'Staf PPIC', role: 'PPIC', password: '123' },
+  { username: 'project', name: 'Staf Project', role: 'PROJECT', password: '123' },
+  { username: 'manager', name: 'Bapak Manager', role: 'MANAGER', password: '123' },
+];
+
 const STORAGE_KEYS = {
   PRODUCTS: 'inv_products',
   PARTNERS: 'inv_partners',
@@ -28,8 +37,10 @@ const STORAGE_KEYS = {
   OPNAMES: 'inv_opnames',
   SETTINGS: 'inv_settings',
   ORDERS: 'inv_orders',
-  LOCATIONS: 'inv_locations', // New Key
-  THEME: 'inv_theme'
+  LOCATIONS: 'inv_locations',
+  THEME: 'inv_theme',
+  USER: 'inv_current_user',
+  ALL_USERS: 'inv_all_users' // New key for user management
 };
 
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -38,8 +49,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [opnames, setOpnames] = useState<StockOpname[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [locations, setLocations] = useState<StorageLocation[]>([]); // New State
+  const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [settings, setSettings] = useState<CompanySettings>(defaultSettings);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [users, setUsers] = useState<User[]>(DEFAULT_USERS);
   
   // Theme State
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -54,6 +67,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const storedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       const storedOrders = localStorage.getItem(STORAGE_KEYS.ORDERS);
       const storedLocations = localStorage.getItem(STORAGE_KEYS.LOCATIONS);
+      const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+      const storedAllUsers = localStorage.getItem(STORAGE_KEYS.ALL_USERS);
       
       // Theme Initialization
       const storedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
@@ -70,15 +85,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (storedTransactions) setTransactions(JSON.parse(storedTransactions));
       if (storedOpnames) setOpnames(JSON.parse(storedOpnames));
       if (storedSettings) setSettings(JSON.parse(storedSettings));
-      else setSettings(defaultSettings); // Ensure default settings are applied if none exist
+      else setSettings(defaultSettings);
       if (storedOrders) setOrders(JSON.parse(storedOrders));
       if (storedLocations) setLocations(JSON.parse(storedLocations));
+      if (storedUser) setCurrentUser(JSON.parse(storedUser));
+      if (storedAllUsers) setUsers(JSON.parse(storedAllUsers));
     } catch (e) {
       console.error("Failed to load data from storage", e);
     }
   }, []);
 
-  // Sync Theme changes to DOM and LocalStorage
+  // Sync Theme changes
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'dark') {
@@ -97,6 +114,46 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings)), [settings]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders)), [orders]);
   useEffect(() => localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(locations)), [locations]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.ALL_USERS, JSON.stringify(users)), [users]);
+  
+  // Auth Logic
+  const login = (username: string, pass: string): boolean => {
+    // Check against the dynamic 'users' state instead of static MOCK_USERS
+    const user = users.find(u => u.username === username && u.password === pass);
+    if (user) {
+      setCurrentUser(user);
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      return true;
+    }
+    return false;
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+  };
+
+  // User Management
+  const addUser = (user: User) => {
+    setUsers(prev => [...prev, user]);
+  };
+
+  const updateUser = (updatedUser: User) => {
+    setUsers(prev => prev.map(u => u.username === updatedUser.username ? updatedUser : u));
+    // Also update current session if the updated user is the logged in one
+    if (currentUser && currentUser.username === updatedUser.username) {
+        setCurrentUser(updatedUser);
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser));
+    }
+  };
+
+  const deleteUser = (username: string) => {
+    if (currentUser?.username === username) {
+        alert("Tidak dapat menghapus akun yang sedang digunakan login!");
+        return;
+    }
+    setUsers(prev => prev.filter(u => u.username !== username));
+  };
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
@@ -157,7 +214,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     txToDelete.items.forEach(item => {
       const productIndex = updatedProducts.findIndex(p => p.id === item.productId);
       if (productIndex > -1) {
-        // If it was IN, we SUBTRACT to undo. If OUT, we ADD to undo.
         if (txToDelete.type === 'IN') {
           updatedProducts[productIndex].currentStock -= item.quantity;
         } else {
@@ -245,6 +301,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setOpnames([]);
       setOrders([]);
       setLocations([]);
+      setUsers(DEFAULT_USERS);
       localStorage.clear();
       window.location.reload();
     }
@@ -270,7 +327,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       locations,
       settings,
       theme,
+      currentUser,
+      users,
       toggleTheme,
+      login,
+      logout,
+      addUser,
+      updateUser,
+      deleteUser,
       addProduct,
       updateProduct,
       deleteProduct,
